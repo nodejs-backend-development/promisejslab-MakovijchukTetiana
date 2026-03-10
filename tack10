@@ -1,0 +1,121 @@
+// ==================== ЗАВДАННЯ 10.4 ====================
+/**
+ * Створіть функцію, яка конкурує кілька джерел даних
+ * і повертає першу успішну відповідь
+ * Але якщо всі джерела падають - reject
+ */
+
+function unreliableSource(name, delay, shouldFail) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (shouldFail) {
+                reject(new Error(`${name} failed`));
+            } else {
+                resolve({ source: name, data: 'Success!' });
+            }
+        }, delay);
+    });
+}
+
+function getDataFromAnySource() {
+    const sources = [
+        unreliableSource('Source A', 300, true),
+        unreliableSource('Source B', 500, false),
+        unreliableSource('Source C', 200, true)
+    ];
+
+    let failedCount = 0;
+
+    // Використовуємо Promise.race, але перехоплюємо помилки, 
+    // щоб вони не зупиняли перегони для інших
+    return Promise.race(
+        sources.map(promise => 
+            promise.catch(err => {
+                failedCount++;
+                if (failedCount === sources.length) {
+                    throw new Error('All sources failed');
+                }
+                // Повертаємо проміс, який ніколи не резолвиться, 
+                // щоб він "вибув" з Promise.race
+                return new Promise(() => {}); 
+            })
+        )
+    );
+}
+
+// Перевірка 10.4:
+getDataFromAnySource()
+    .then(result => console.log(' Тест 10.4:', result))
+    .catch(err => console.error(' Тест 10.4 Помилка:', err));
+
+
+//  ЗАВДАННЯ 10.5 
+/**
+ * Створіть систему з fallback серверами
+ * Спробуйте основний сервер, якщо він не відповідає за 1 секунду
+ * переключіться на резервний
+ */
+
+function primaryServer() {
+    return new Promise(resolve => {
+        setTimeout(() => resolve('Primary data'), 2000);
+    });
+}
+
+function backupServer() {
+    return new Promise(resolve => {
+        setTimeout(() => resolve('Backup data'), 500);
+    });
+}
+
+function getDataWithFallback() {
+    const primary = primaryServer().then(data => ({ source: 'primary', data }));
+    
+    const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout')), 1000);
+    });
+
+    return Promise.race([primary, timeout])
+        .catch(err => {
+            if (err.message === 'Timeout') {
+                return backupServer().then(data => ({ source: 'backup', data }));
+            }
+            throw err;
+        });
+}
+
+// Перевірка 10.5:
+getDataWithFallback()
+    .then(result => console.log(' Тест 10.5:', result))
+    .catch(err => console.error(' Тест 10.5 Помилка:', err));
+
+
+//  ЗАВДАННЯ 10.6 
+/**
+ * Створіть функцію для конкуруючих обчислень
+ * Запустіть кілька воркерів паралельно і поверніть результат першого
+ */
+
+function worker(workerId, complexity) {
+    return new Promise(resolve => {
+        const startTime = Date.now();
+        setTimeout(() => {
+            resolve({
+                workerId,
+                result: `Worker ${workerId} completed`,
+                timeTaken: Date.now() - startTime
+            });
+        }, complexity * Math.random() * 100);
+    });
+}
+
+function parallelComputation() {
+    // Створюємо 5 воркерів і запускаємо їх паралельно
+    const workers = [1, 2, 3, 4, 5].map(id => worker(id, id));
+    return Promise.race(workers);
+}
+
+// Перевірка 10.6:
+parallelComputation()
+    .then(result => console.log(' Тест 10.6:', result))
+    .catch(err => console.error(' Тест 10.6 Помилка:', err));
