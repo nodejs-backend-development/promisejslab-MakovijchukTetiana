@@ -1,0 +1,162 @@
+// ЗАВДАННЯ 11.4 
+/**
+ * Створіть систему моніторингу здоров'я серверів
+ * Перевірте всі сервери і створіть звіт про їх статус
+ */
+
+function checkServerHealth(serverName, delay, shouldFail) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (shouldFail) {
+                reject(new Error(`${serverName} is down`));
+            } else {
+                resolve({
+                    server: serverName,
+                    status: 'healthy',
+                    responseTime: delay
+                });
+            }
+        }, delay);
+    });
+}
+
+/**
+ * @returns {Promise<{healthy: object[], unhealthy: object[], totalServers: number}>}
+ */
+async function monitorServers() {
+    const servers = [
+        { name: 'Server A', delay: 100, shouldFail: false },
+        { name: 'Server B', delay: 300, shouldFail: true },
+        { name: 'Server C', delay: 150, shouldFail: false },
+        { name: 'Server D', delay: 500, shouldFail: true },
+        { name: 'Server E', delay: 200, shouldFail: false }
+    ];
+
+    // 1. Створюємо масив промісів (запускаємо перевірку для всіх одночасно)
+    const promises = servers.map(server => 
+        checkServerHealth(server.name, server.delay, server.shouldFail)
+    );
+
+    // 2. Чекаємо завершення всіх перевірок
+    const results = await Promise.allSettled(promises);
+
+    // 3. Формуємо звіт
+    const report = {
+        healthy: [],
+        unhealthy: [],
+        totalServers: servers.length
+    };
+
+    // 4. Сортуємо результати залежно від статусу
+    results.forEach(result => {
+        if (result.status === 'fulfilled') {
+            report.healthy.push(result.value);
+        } else {
+            // Для unhealthy зберігаємо повідомлення про помилку
+            report.unhealthy.push({ error: result.reason.message });
+        }
+    });
+
+    return report;
+}
+
+// Перевірка:
+monitorServers()
+    .then(report => {
+        console.log(' Тест 11.4: Server Health Report');
+        console.log(' Healthy:', report.healthy.length);
+        console.log(' Unhealthy:', report.unhealthy.length);
+        console.log(' Total:', report.totalServers);
+        
+        // Додатково виведемо деталі для наочності
+        console.log(' Деталі ');
+        console.log('Здорові сервери:', report.healthy.map(s => s.server).join(', '));
+        console.log('Впавші сервери:', report.unhealthy.map(s => s.error).join(', '));
+    })
+    .catch(err => console.error('Помилка виконання:', err));
+
+//  ЗАВДАННЯ 11.6 
+/**
+ * Створіть систему graceful degradation
+ * Якщо основний сервіс недоступний - використайте запасний
+ * Якщо і він недоступний - використайте кеш
+ * Поверніть звіт про те, звідки отримали дані
+ */
+
+
+const cache = new Map([
+    ['user:1', { id: 1, name: 'Cached User', source: 'cache' }]
+]);
+
+function fetchFromPrimary(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (Math.random() > 0.3) {
+                reject(new Error('Primary service down'));
+            } else {
+                resolve({ id, name: 'Primary User', source: 'primary' });
+            }
+        }, 100);
+    });
+}
+
+function fetchFromBackup(id) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (Math.random() > 0.5) {
+                reject(new Error('Backup service down'));
+            } else {
+                resolve({ id, name: 'Backup User', source: 'backup' });
+            }
+        }, 200);
+    });
+}
+
+// --- 2.  реалізація ---
+/**
+ * Спробуйте отримати дані з трьох джерел одночасно
+ * Використайте перше успішне
+ * Якщо всі недоступні - поверніть помилку
+ * * @param {number} userId 
+ * @returns {Promise<{data: object, source: string, attemptedSources: string[]}>}
+ */
+async function fetchWithFallback(userId) {
+    const fetchFromCache = new Promise((resolve, reject) => {
+        const key = `user:${userId}`;
+        if (cache.has(key)) {
+            resolve(cache.get(key));
+        } else {
+            reject(new Error('Cache miss'));
+        }
+    });
+
+    const sources = [
+        { name: 'primary', promise: fetchFromPrimary(userId) },
+        { name: 'backup', promise: fetchFromBackup(userId) },
+        { name: 'cache', promise: fetchFromCache }
+    ];
+
+    const attemptedSources = sources.map(s => s.name);
+    const results = await Promise.allSettled(sources.map(s => s.promise));
+
+    for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'fulfilled') {
+            return {
+                data: results[i].value,
+                source: sources[i].name,
+                attemptedSources: attemptedSources
+            };
+        }
+    }
+
+    throw new Error('All data sources are unavailable');
+}
+
+// --- 3. Перевірка ---
+fetchWithFallback(1)
+    .then(result => {
+        console.log(' Тест 11.6:', result);
+    })
+    .catch(error => {
+        console.error('Тест 11.6 Помилка:', error.message);
+    });
