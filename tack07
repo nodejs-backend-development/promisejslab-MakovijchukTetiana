@@ -1,0 +1,135 @@
+/** Завдання 7.2:
+ * Створіть ланцюжок обробки даних користувача
+ * * @param {{name: string, age: number}} user 
+ * @returns {Promise<{name: string, age: number, isAdult: boolean, nameLength: number}>}
+ */
+function processUser(user) {
+    // 1. Створюємо проміс із переданого об'єкта user
+    return Promise.resolve(user)
+        // 2. Робимо ім'я великими літерами
+        .then(u => {
+            return { ...u, name: u.name.toUpperCase() };
+        })
+        // 3. Додаємо поле isAdult (вік >= 18)
+        .then(u => {
+            return { ...u, isAdult: u.age >= 18 };
+        })
+        // 4. Додаємо довжину імені
+        .then(u => {
+            return { ...u, nameLength: u.name.length };
+        });
+}
+
+// Перевірка :
+processUser({ name: 'john doe', age: 25 })
+    .then(result => console.log(' Тест 7.2:', result))
+    .catch(err => console.error(' Помилка:', err));
+
+
+
+
+
+//   ЗАВДАННЯ 7.3   
+
+// --- 1. Допоміжні функції 
+function fetchUserData(userId) {
+    return new Promise(resolve => {
+        setTimeout(() => resolve({ id: userId, username: 'user_' + userId }), 100);
+    });
+}
+
+function fetchUserPosts(user) {
+    return new Promise(resolve => {
+        setTimeout(() => resolve({ ...user, posts: ['Post 1', 'Post 2', 'Post 3'] }), 100);
+    });
+}
+
+function countPosts(userData) {
+    return new Promise(resolve => {
+        setTimeout(() => resolve({ ...userData, postCount: userData.posts.length }), 100);
+    });
+}
+
+// --- 2.  реалізація (ланцюжок) ---
+function getUserWithPostCount(userId) {
+    return fetchUserData(userId)
+        .then(user => fetchUserPosts(user))
+        .then(userData => countPosts(userData));
+}
+
+//  3. Перевірка 
+getUserWithPostCount(123)
+    .then(result => console.log(' Тест 7.3:', result))
+    .catch(err => console.error(' Помилка:', err));
+
+
+
+
+
+
+   //  ЗАВДАННЯ 7.5 
+
+// --- 1. База даних та допоміжні функції 
+const products = {
+    101: { id: 101, name: 'Laptop', price: 1000, stock: 5 },
+    102: { id: 102, name: 'Mouse', price: 25, stock: 50 },
+    103: { id: 103, name: 'Keyboard', price: 75, stock: 0 }
+};
+
+function getProduct(productId) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const product = products[productId];
+            if (product) {
+                resolve(product);
+            } else {
+                reject(new Error('Product not found'));
+            }
+        }, 100);
+    });
+}
+
+function checkStock(product) {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (product.stock > 0) {
+                resolve(product);
+            } else {
+                reject(new Error('Out of stock'));
+            }
+        }, 100);
+    });
+}
+
+function calculateTotal(product, quantity) {
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve({
+                product: product.name,
+                quantity: quantity,
+                unitPrice: product.price,
+                total: product.price * quantity
+            });
+        }, 100);
+    });
+}
+
+// --- 2. функція (ланцюжок) ---
+function placeOrder(productId, quantity) {
+    return getProduct(productId)
+        .then(product => checkStock(product))
+        .then(product => calculateTotal(product, quantity))
+        .catch(err => {
+            return { error: err.message };
+        });
+}
+
+// --- 3. Перевірка результатів ---
+placeOrder(101, 2)
+    .then(result => console.log('Тест 7.5a:', result));
+
+placeOrder(103, 1)
+    .then(result => console.log(' Тест 7.5b:', result));
+
+placeOrder(999, 1)
+    .then(result => console.log(' Тест 7.5c:', result));
