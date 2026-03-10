@@ -1,0 +1,280 @@
+// ==================== ЗАВДАННЯ 19.5 ====================
+/**
+ * Створіть систему retry з обмеженням за часом
+ * Навіть якщо є спроби, зупиніться якщо пройшло багато часу
+ *
+ * @param {Function} fn 
+ * @param {Object} options - {maxRetries, maxTime, initialDelay}
+ * @returns {Promise}
+ */
+function retryWithTimeout(fn, options = {}) {
+    const {
+        maxRetries = 3,
+        maxTime = 5000,  // Максимальний час в мс
+        initialDelay = 100
+    } = options;
+
+    // Фіксуємо час початку, щоб рахувати, скільки минуло
+    const startTime = Date.now();
+
+    // Внутрішня асинхронна функція для спроб
+    async function attempt(currentRetry) {
+        // 1. Перевіряємо, чи не вичерпано загальний час ПЕРЕД спробою
+        if (Date.now() - startTime >= maxTime) {
+            throw new Error('Timeout exceeded');
+        }
+
+        try {
+            // Намагаємося виконати передану функцію
+            return await fn();
+        } catch (error) {
+            // 2. Якщо сталася помилка, перевіряємо ліміт спроб
+            if (currentRetry >= maxRetries) {
+                throw new Error(`Max retries (${maxRetries}) reached`);
+            }
+
+            // Перевіряємо час ще раз ПІСЛЯ помилки (щоб не робити зайву паузу)
+            if (Date.now() - startTime >= maxTime) {
+                throw new Error('Timeout exceeded');
+            }
+
+            // Робимо паузу перед наступною спробою
+            await new Promise(resolve => setTimeout(resolve, initialDelay));
+
+            // Рекурсивно переходимо до наступної спроби
+            return attempt(currentRetry + 1);
+        }
+    }
+
+    // Запускаємо першу спробу (нульовий індекс)
+    return attempt(0);
+}
+
+// --- Перевірка ---
+let attempt5 = 0;
+function slowFunction() {
+    attempt5++;
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            if (attempt5 < 10) {
+                reject(new Error(`Attempt ${attempt5}`));
+            } else {
+                resolve('Success');
+            }
+        }, 200);
+    });
+}
+
+console.log('Starting retryWithTimeout at', new Date().toLocaleTimeString());
+retryWithTimeout(slowFunction, {
+    maxRetries: 20,
+    maxTime: 1000,
+    initialDelay: 100
+})
+    .catch(error => {
+        console.log(' Тест 19.5: Stopped due to timeout');
+        console.log(' Total attempts:', attempt5);
+        console.log(' Reason:', error.message);
+    });
+
+// ==================== ЗАВДАННЯ 19.6 ====================
+/**
+ * Створіть "розумний" retry з адаптивною затримкою
+ * Затримка залежить від типу помилки
+ */
+
+class RateLimitError extends Error {
+    constructor(retryAfter) {
+        super('Rate limit exceeded');
+        this.name = 'RateLimitError';
+        this.retryAfter = retryAfter; // seconds
+    }
+}
+
+class ServerError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'ServerError';
+    }
+}
+
+/**
+ * @param {Function} fn 
+ * @param {number} maxRetries 
+ * @returns {Promise}
+ */
+function smartRetry(fn, maxRetries) {
+    async function attempt(retryCount) {
+        try {
+            // Намагаємося виконати запит
+            return await fn();
+        } catch (error) {
+            // Якщо перевищили кількість спроб — припиняємо
+            if (retryCount >= maxRetries) {
+                throw error;
+            }
+
+            let delay = 0;
+
+            // 1. Для RateLimitError чекаємо вказану кількість секунд
+            if (error instanceof RateLimitError) {
+                delay = error.retryAfter * 1000; // переводимо секунди в мілісекунди
+                console.log(`⏳ [RateLimit] Перевищено ліміт. Чекаємо ${error.retryAfter}с...`);
+            } 
+            // 2. Для ServerError використовуємо експоненційну затримку
+            else if (error instanceof ServerError) {
+                delay = Math.pow(2, retryCount) * 100; 
+                console.log(` [ServerError] Сервер перевантажено. Спроба ${retryCount}, чекаємо ${delay}мс...`);
+            } 
+            // 3. Для невідомих помилок (наприклад, синтаксичних) одразу падаємо
+            else {
+                console.log(' Невідома помилка. Припиняємо спроби.');
+                throw error;
+            }
+
+            // Робимо паузу перед наступною спробою
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            // Запускаємо наступну спробу
+            return attempt(retryCount + 1);
+        }
+    }
+
+    return attempt(1); // Починаємо з першої спроби
+}
+
+// Перевірка:
+let attempt6 = 0;
+function smartAPI() {
+    attempt6++;
+    if (attempt6 === 1) {
+        return Promise.reject(new RateLimitError(1));
+    }
+    if (attempt6 === 2) {
+        return Promise.reject(new ServerError('Server overload'));
+    }
+    if (attempt6 === 3) {
+        return Promise.resolve('Success!');
+    }
+}
+
+smartRetry(smartAPI, 5)
+    .then(result => console.log(' Тест 19.6 результат:', result))
+    .catch(error => console.error(' Помилка:', error));
+
+    // ЗАВДАННЯ 19.7 
+/**
+ * Створіть універсальну retry систему з усіма можливостями
+ *
+ * @param {Function} fn 
+ * @param {Object} config
+ * @returns {Promise<{result: any, attempts: number, totalTime: number, errors: Error[]}>}
+ */
+function universalRetry(fn, config = {}) {
+    const defaults = {
+        maxRetries: 3,
+        maxTime: 10000,
+        initialDelay: 100,
+        maxDelay: 5000,
+        backoffMultiplier: 2,
+        shouldRetry: () => true,
+        onRetry: () => {},
+        onSuccess: () => {},
+        onFailure: () => {}
+    };
+
+    // Об'єднуємо дефолтні налаштування з переданими користувачем
+    const options = { ...defaults, ...config };
+
+    const startTime = Date.now();
+    const errors = [];
+    let attempts = 0;
+
+    return new Promise((resolve, reject) => {
+        const execute = async () => {
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - startTime;
+
+            // 1. Абсолютний захист по часу (Global Timeout)
+            if (elapsedTime >= options.maxTime) {
+                const timeoutErr = new Error(`Max time (${options.maxTime}ms) exceeded`);
+                options.onFailure(timeoutErr);
+                return reject(timeoutErr);
+            }
+
+            attempts++;
+
+            try {
+                // Спробуємо виконати цільову функцію
+                const result = await fn();
+                
+                // Якщо успіх — збираємо статистику
+                const stats = {
+                    result,
+                    attempts,
+                    totalTime: Date.now() - startTime,
+                    errors
+                };
+                
+                options.onSuccess(stats);
+                resolve(stats);
+
+            } catch (error) {
+                errors.push(error);
+                
+                // Перевіряємо умови для продовження спроб
+                const canRetryAttempts = attempts < options.maxRetries;
+                const canRetryCondition = options.shouldRetry(error);
+                
+                if (canRetryAttempts && canRetryCondition) {
+                    // 2. Гнучка стратегія затримки (Exponential Backoff з обмеженням maxDelay)
+                    let delay = options.initialDelay * Math.pow(options.backoffMultiplier, attempts - 1);
+                    delay = Math.min(delay, options.maxDelay);
+
+                    // Якщо очікування цієї паузи перевищить глобальний ліміт часу - зупиняємось
+                    if ((Date.now() - startTime) + delay >= options.maxTime) {
+                        options.onFailure(error);
+                        return reject(new Error('Max time would be exceeded during delay'));
+                    }
+
+                    // 4. Callback для моніторингу
+                    options.onRetry(attempts, error);
+
+                    // Чекаємо і рекурсивно запускаємо знову
+                    setTimeout(execute, delay);
+                } else {
+                    // Якщо ліміт спроб вичерпано, або помилка не підлягає retry
+                    options.onFailure(error);
+                    reject(error);
+                }
+            }
+        };
+
+        // Запускаємо першу ітерацію
+        execute();
+    });
+}
+
+// Перевірка:
+let attempt7 = 0;
+universalRetry(
+    () => {
+        attempt7++;
+        if (attempt7 < 3) {
+            return Promise.reject(new Error('Not yet'));
+        }
+        return Promise.resolve('Finally!');
+    },
+    {
+        maxRetries: 5,
+        initialDelay: 50,
+        onRetry: (attempt, error) => console.log(`  Retry ${attempt}: ${error.message}`),
+        onSuccess: (stats) => console.log('  Success Hook Called!'),
+        onFailure: (err) => console.log('  Failure Hook Called:', err.message)
+    }
+)
+    .then(result => {
+        result.errors = result.errors.map(e => e.message);
+        console.log(' Тест 19.7 Результат:', result);
+    })
+    .catch(err => console.log(' Тест 19.7 Помилка:', err.message));
