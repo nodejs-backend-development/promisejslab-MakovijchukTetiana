@@ -1,0 +1,93 @@
+/**Завдання 2.4:
+ * Створіть функцію, яка приймає проміс або звичайне значення
+ * і завжди повертає проміс
+ * * @param {any} value 
+ * @returns {Promise<any>}
+ */
+function ensurePromise(value) {
+    // Promise.resolve автоматично обробляє обидва випадки
+    return Promise.resolve(value);
+}
+
+// Перевірка:
+// Випадок А: Передаємо число. Promise.resolve(42) перетворить його на проміс.
+ensurePromise(42)
+    .then(val => console.log(' Тест 2.4a (значення):', val)); // 42
+
+// Випадок Б: Передаємо проміс. Promise.resolve поверне цей самий проміс.
+ensurePromise(Promise.resolve(100))
+    .then(val => console.log(' Тест 2.4b (проміс):', val)); // 100
+
+
+
+
+
+    /** Завдання 2.5:
+ * Створіть функцію для конвертації callback-based функції в проміс
+ * * @param {any} value 
+ * @returns {Promise<string>}
+ */
+function callbackToPromise(value) {
+    return new Promise((resolve, reject) => {
+        // Симулюємо функцію, яка приймає callback(error, result)
+        setTimeout(() => {
+            try {
+                const result = 'Processed: ' + value;
+                
+                //  оскільки ми повертаємо проміс, ми робимо resolve:
+                resolve(result);
+            } catch (error) {
+                // У разі помилки:
+                reject(error);
+            }
+        }, 100); // затримка 100мс
+    });
+}
+
+// Перевірка:
+callbackToPromise('test')
+    .then(result => console.log(' Тест 2.5:', result)) // Очікується: 'Processed: test'
+    .catch(err => console.error(' Помилка:', err));
+
+
+
+
+
+    /**Завдання 2.7:
+ * Створіть функцію-обгортку для синхронних функцій,
+ * яка перехоплює помилки та повертає проміс
+ * * @param {Function} fn - Синхронна функція
+ * @param {any[]} args - Аргументи для функції
+ * @returns {Promise<any>}
+ */
+function tryCatchPromise(fn, ...args) {
+    try {
+        // Викликаємо функцію з переданими аргументами
+        const result = fn(...args);
+        
+        // Якщо помилок немає, повертаємо успішний проміс
+        return Promise.resolve(result);
+    } catch (error) {
+        // Якщо функція викинула помилку (throw), повертаємо відхилений проміс
+        return Promise.reject(error);
+    }
+}
+
+// --- Перевірка: ---
+
+const goodFunction = (a, b) => a + b;
+const badFunction = () => { throw new Error('Oops!'); };
+
+// Тест 2.7a: Успішне виконання
+tryCatchPromise(goodFunction, 5, 3)
+    .then(result => console.log(' Тест 2.7a (результат):', result)) // 8
+    .catch(err => console.error(' Не має бути тут:', err));
+
+// Тест 2.7b: Обробка помилки
+tryCatchPromise(badFunction)
+    .then(result => console.log(' Не повинно виконатися'))
+    .catch(error => console.log(' Тест 2.7b (помилка):', error.message)); // 'Oops!'
+
+
+
+
